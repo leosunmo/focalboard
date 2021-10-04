@@ -2,6 +2,7 @@
 // See LICENSE.txt for license information.
 import * as fs from 'fs'
 import minimist from 'minimist'
+import * as readline from 'readline'
 import {exit} from 'process'
 import {ArchiveUtils} from '../../webapp/src/blocks/archive'
 import {Block} from '../../webapp/src/blocks/block'
@@ -9,8 +10,8 @@ import {IPropertyOption, IPropertyTemplate, createBoard} from '../../webapp/src/
 import {createBoardView} from '../../webapp/src/blocks/boardView'
 import {createCard} from '../../webapp/src/blocks/card'
 import {createTextBlock} from '../../webapp/src/blocks/textBlock'
-import {createCheckboxBlock, CheckboxBlock} from '../../webapp/src/blocks/checkboxBlock'
-import {ChecklistElement, Trello} from './trello'
+import {createCheckboxBlock} from '../../webapp/src/blocks/checkboxBlock'
+import { Trello} from './trello'
 import {Utils} from './utils'
 
 // HACKHACK: To allow Utils.CreateGuid to work
@@ -30,11 +31,12 @@ const optionColors = [
 ]
 let optionColorIndex = 0
 
-function main() {
+async function main() {
     const args: minimist.ParsedArgs = minimist(process.argv.slice(2))
 
     const inputFile = args['i']
     const outputFile = args['o'] || 'archive.focalboard'
+    const appKey = args['k']
 
     if (!inputFile) {
         showHelp()
@@ -45,12 +47,35 @@ function main() {
         exit(2)
     }
 
+    // Authenticate to Trello
+    let authToken = ""
+    if (appKey) {
+        const trelloAuthURL = "https://trello.com/1/connect?key=" + 
+    appKey +
+    "&name=trello-export&response_type=token&scope=account,read&expiration=5m"
+
+        console.log(`Follow link to get Token: ${trelloAuthURL}`)
+
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: false
+        })
+
+        const query =  new Promise<string>(resolve => {
+            rl.question('Once you have the token, paste it here: ', (token) => {
+                resolve(token)
+            })
+        })
+    
+        authToken = await query
+    }
     // Read input
     const inputData = fs.readFileSync(inputFile, 'utf-8')
     const input = JSON.parse(inputData) as Trello
 
     // Convert
-    const blocks = convert(input)
+    const blocks = convert(input, authToken, appKey)
 
     // Save output
     // TODO: Stream output
@@ -60,7 +85,14 @@ function main() {
     console.log(`Exported to ${outputFile}`)
 }
 
-function convert(input: Trello): Block[] {
+function getAttachment(url: string, token: string, appKey: string) {
+    console.log(`${url}${token}${appKey}`)
+// Pull down image/attachment
+// TODO: do we save them to disk for manual import? That doesn't seem nice.
+// TODO: do we somehow import them directly to Focalboard? There's nowhere for the images to go in the import archive.
+}
+
+function convert(input: Trello, token: string, appKey: string): Block[] {
     const blocks: Block[] = []
 
     // Board
@@ -159,6 +191,17 @@ function convert(input: Trello): Block[] {
                 }
             })
         }
+
+        // Add attachments
+        if (token !== "" && appKey !== "") {
+            if (card.attachments && card.attachments.length) {
+                card.attachments.forEach(attachment => {
+                    getAttachment(attachment.url,token,appKey)
+                })
+            }
+        }
+
+
     })
 
     console.log('')
@@ -168,7 +211,7 @@ function convert(input: Trello): Block[] {
 }
 
 function showHelp() {
-    console.log('import -i <input.json> -o [output.focalboard]')
+    console.log('import -i <input.json> -o [output.focalboard] [-k trello-app-key]')
     exit(1)
 }
 
